@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}Add Lecturer — MMU RateMyProfessor{% endblock %}
+
+{% block extra_styles %}
+.page-header { margin-bottom: 2rem; }
+.page-header h1 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 30px; font-weight: 400; margin-bottom: 4px;
+}
+.page-header p { color: var(--muted); font-size: 14px; }
+
+.layout { display: grid; grid-template-columns: 400px 1fr; gap: 2rem; align-items: start; }
+
+.form-group { margin-bottom: 1.1rem; }
+.form-group label {
+  display: block; font-size: 13px; font-weight: 500;
+  margin-bottom: 6px; color: var(--text);
+}
+.form-group input {
+  width: 100%; padding: 9px 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+  font-family: 'DM Sans', sans-serif; font-size: 14px;
+  color: var(--text); background: var(--bg);
+  transition: border-color 0.2s;
+}
+.form-group input:focus { outline: none; border-color: var(--accent); }
+
+.lecturer-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lecturer-table th {
+  text-align: left; font-size: 11px; font-weight: 600;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 0 10px 10px;
+}
+.lecturer-table td {
+  padding: 10px; border-top: 1px solid var(--border);
+  color: var(--text); vertical-align: middle;
+}
+.lecturer-table tr:hover td { background: var(--bg); }
+.lec-code {
+  font-family: monospace; font-size: 11px; font-weight: 600;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 7px; color: var(--muted);
+}
+.empty-msg { color: var(--muted); font-size: 14px; padding: 1.5rem 0; text-align: center; }
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Manage Lecturers</h1>
+  <p>Add lecturers to the database so students can rate them.</p>
+</div>
+
+<div class="layout">
+
+  <!-- ADD FORM -->
+  <div class="card">
+    <h2 style="font-size:15px; font-weight:600; margin-bottom:1.25rem;">Add a Lecturer</h2>
+    <form method="POST" action="{{ url_for('add_lecturer_page') }}">
+      <div class="form-group">
+        <label for="name">Full Name</label>
+        <input type="text" id="name" name="name" placeholder="e.g. Dr. Lim Wei Keat" required>
+      </div>
+      <div class="form-group">
+        <label for="faculty">Faculty</label>
+        <input type="text" id="faculty" name="faculty" placeholder="e.g. Faculty of Computing" required>
+      </div>
+      <div class="form-group">
+        <label for="course">Course Name</label>
+        <input type="text" id="course" name="course" placeholder="e.g. Database Systems" required>
+      </div>
+      <div class="form-group">
+        <label for="course_code">Course Code</label>
+        <input type="text" id="course_code" name="course_code" placeholder="e.g. CSC3024" required>
+      </div>
+      <button class="btn btn-primary" type="submit" style="width:100%; margin-top:4px;">
+        Add Lecturer
+      </button>
+    </form>
+  </div>
+
+  <!-- LECTURER LIST -->
+  <div class="card">
+    <h2 style="font-size:15px; font-weight:600; margin-bottom:1.25rem;">
+      Current Lecturers
+      <span style="font-weight:400; color:var(--muted); font-size:13px;">
+        ({{ lecturers|length }})
+      </span>
+    </h2>
+
+    {% if lecturers %}
+    <table class="lecturer-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Code</th>
+          <th>Course</th>
+          <th>Faculty</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lec in lecturers %}
+        <tr>
+          <td><strong>{{ lec.name }}</strong></td>
+          <td><span class="lec-code">{{ lec.course_code }}</span></td>
+          <td>{{ lec.course }}</td>
+          <td style="color:var(--muted);">{{ lec.faculty }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-msg">No lecturers added yet.</div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
