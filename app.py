@@ -70,6 +70,7 @@ def setup_database():
         CREATE TABLE IF NOT EXISTS ratings (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             lecturer_id   INTEGER NOT NULL,
+            student_id    TEXT NOT NULL,
             grading       INTEGER NOT NULL,
             teaching      INTEGER NOT NULL,
             strictness    INTEGER NOT NULL,
