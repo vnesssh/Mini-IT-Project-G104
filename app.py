@@ -4,7 +4,7 @@ import sqlite3
 
 app = Flask(__name__)
 
-app.secret_key = "mmu_secret_key_2024"
+app.secret_key = "the_strongest_secret_key_in_the_world_12345"  
 
 DB_FILE = "mmu_ratings.db"
 
