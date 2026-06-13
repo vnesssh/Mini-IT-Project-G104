@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rate {{ lecturer.name }} — MMU RateMyProfessor</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <header class="navbar">
+    <div class="nav-logo">
+      <a href="/" style="text-decoration:none;"><span class="mm">MM</span><span class="u">U</span></a>
+    </div>
+    <nav class="nav-links">
+      <a href="/">Home</a>
+      <a href="#">Browse</a>
+      <a href="#">About</a>
+    </nav>
+  </header>
+
+  <main class="form-page">
+    <div class="form-card" style="max-width:580px;">
+      <h2 class="form-title">Rate a Lecturer</h2>
+      <p class="form-subtitle">Rating: <strong>{{ lecturer.name }}</strong></p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+          <div class="status-msg {{ cat }}">{{ msg }}</div>
+        {% endfor %}
+      {% endwith %}
+
+      <form method="POST">
+        <div class="form-group">
+          <label for="student_id">Your Student ID</label>
+          <input type="text" name="student_id" id="student_id" class="form-input" placeholder="e.g. 1231234" required />
+        </div>
+
+        {% for field, label in [
+          ("grading","Grading Fairness"),
+          ("teaching","Teaching Quality"),
+          ("strictness","Strictness"),
+          ("communication","Communication"),
+          ("textbooks","Textbook Usefulness")
+        ] %}
+        <div class="form-group">
+          <label>{{ label }}</label>
+          <div class="star-row" data-field="{{ field }}">
+            {% for i in range(1,6) %}
+            <button type="button" class="star-btn" data-val="{{ i }}" onclick="setStars('{{ field }}', {{ i }})">★</button>
+            {% endfor %}
+          </div>
+          <input type="hidden" name="{{ field }}" id="{{ field }}" />
+        </div>
+        {% endfor %}
+
+        <div class="form-group">
+          <label for="comment">Comment <span class="optional">(optional)</span></label>
+          <textarea name="comment" id="comment" class="form-input" rows="3" placeholder="Share your experience..."></textarea>
+        </div>
+
+        <div class="form-actions">
+          <a href="/lecturer/{{ lecturer.id }}" class="cancel-btn">Cancel</a>
+          <button type="submit" class="search-btn submit-btn">Submit Rating</button>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p>&copy; 2026 MMU RateMyProfessor. All rights reserved.</p>
+  </footer>
+
+  <script>
+    function setStars(field, val) {
+      document.getElementById(field).value = val;
+      const row = document.querySelector(`.star-row[data-field="${field}"]`);
+      row.querySelectorAll(".star-btn").forEach((btn, i) => {
+        btn.classList.toggle("active", i < val);
+      });
+    }
+  </script>
+
+</body>
+</html>
