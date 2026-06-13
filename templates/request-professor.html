@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- -------- ADMIN ---------- -->
+  <!-- CHANGED: title from "Add a Professor" to "Request a Professor" -->
+  <title>Request a Professor — MMU RateMyProfessor</title>
+  <!-- -------- ADMIN ---------- -->
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <header class="navbar">
+    <div class="nav-logo">
+      <a href="/" style="text-decoration:none;"><span class="mm">MM</span><span class="u">U</span></a>
+    </div>
+    <nav class="nav-links">
+      <a href="/">Home</a>
+      <a href="#">Browse</a>
+      <a href="#">About</a>
+    </nav>
+  </header>
+
+  <main class="form-page">
+    <div class="form-card">
+
+      <!-- -------- ADMIN ---------- -->
+      <!-- CHANGED: heading and subtitle updated to reflect request flow -->
+      <h2 class="form-title">Request a Professor</h2>
+      <p class="form-subtitle">Submit a lecturer to be reviewed by our admin before appearing in the directory.</p>
+      <!-- -------- ADMIN ---------- -->
+
+      <div id="status-msg" class="status-msg" style="display:none;"></div>
+
+      <div class="form-group">
+        <label for="lecturer-name">Lecturer's Name</label>
+        <input type="text" id="lecturer-name" class="form-input" placeholder="e.g. Dr. Ahmad bin Razali" />
+      </div>
+
+      <div class="form-group">
+        <label for="faculty">Faculty</label>
+        <input type="text" id="faculty" class="form-input" placeholder="e.g. Faculty of Computing and Informatics" />
+      </div>
+
+      <div class="form-group">
+        <label for="course">Course / Subject Name</label>
+        <input type="text" id="course" class="form-input" placeholder="e.g. Data Structures and Algorithms" />
+      </div>
+
+      <div class="form-group">
+        <label for="course-code">Course Code</label>
+        <input type="text" id="course-code" class="form-input" placeholder="e.g. CDS1114" />
+      </div>
+
+      <div class="form-group">
+        <label for="picture">
+          Picture <span class="optional">(optional)</span>
+          <span class="form-note">You can get the picture from the
+            <a href="https://mmuexpert.mmu.edu.my/" target="_blank">MMU Directory of Expertise</a>
+          </span>
+        </label>
+        <label for="picture" class="upload-box" id="upload-label">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="3" ry="3"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+          <span class="upload-text">Click to upload a photo</span>
+          <span class="upload-hint">JPG, PNG or WEBP</span>
+          <input type="file" id="picture" accept="image/*" style="display:none;" onchange="handleFile(event)" />
+        </label>
+        <p class="upload-filename" id="file-name"></p>
+      </div>
+
+      <div class="form-actions">
+        <a href="/" class="cancel-btn">Cancel</a>
+        <!-- -------- ADMIN ---------- -->
+        <!-- CHANGED: button text to "Submit Request" -->
+        <button class="search-btn submit-btn" onclick="submitForm()">Submit Request</button>
+        <!-- -------- ADMIN ---------- -->
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p>&copy; 2026 MMU RateMyProfessor. All rights reserved.</p>
+  </footer>
+
+  <script>
+    let imageDataURL = null;
+
+    function handleFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      document.getElementById("file-name").textContent = "📎 " + file.name;
+      document.getElementById("upload-label").classList.add("uploaded");
+      const reader = new FileReader();
+      reader.onload = ev => { imageDataURL = ev.target.result; };
+      reader.readAsDataURL(file);
+    }
+
+    async function submitForm() {
+      const name        = document.getElementById("lecturer-name").value.trim();
+      const faculty     = document.getElementById("faculty").value.trim();
+      const course      = document.getElementById("course").value.trim();
+      const course_code = document.getElementById("course-code").value.trim();
+
+      if (!name) { showStatus("Please enter the lecturer's name.", "error"); return; }
+
+      const btn = document.querySelector(".submit-btn");
+      btn.textContent = "Submitting...";
+      btn.disabled = true;
+
+      try {
+        // -------- ADMIN ----------
+        // CHANGED: POST now goes to /request-professor instead of /add-professor
+        const res  = await fetch("/request-professor", {
+        // -------- ADMIN ----------
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, faculty, course, course_code, image: imageDataURL })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          // -------- ADMIN ----------
+          // CHANGED: success message now says request is pending review
+          showStatus(`✅ Your request for "${name}" has been submitted and is pending admin review.`, "success");
+          // -------- ADMIN ----------
+          setTimeout(() => window.location.href = "/", 2500);
+        } else {
+          showStatus(data.error || "Something went wrong.", "error");
+        }
+      } catch {
+        showStatus("Could not reach the server. Is app.py running?", "error");
+      }
+      btn.textContent = "Submit Request";
+      btn.disabled = false;
+    }
+
+    function showStatus(msg, type) {
+      const el = document.getElementById("status-msg");
+      el.textContent = msg;
+      el.className = "status-msg " + type;
+      el.style.display = "block";
+    }
+  </script>
+
+</body>
+</html>
