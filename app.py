@@ -35,12 +35,21 @@ def setup_database():
     connection.execute("""
         CREATE TABLE IF NOT EXIST courses (
                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       course_code TEXT NOT NULL UNIQUE,
+                       course_name TEXT NOt NULL
+
+         )
+    """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXIST lectures (
+                       id INTEGER PRIMARY KEY AUTOINCREMENT,
                        name TEXT NOT NULL,
                        faculty_id INTEGER,
                        image TEXT,
-                       FOREIGN KEY (faculty_id) REFERENCES faculties(id)
-         )
-    """)
+                       FOREIGN KEY (faculty_id) REFERENCES faculties (id)
+                       )
+""")
                        
     connection.execute("""
         CREATE TABLE IF NOT EXISTS ratings (
