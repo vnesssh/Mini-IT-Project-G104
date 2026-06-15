@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 import sqlite3
 
 app = Flask(__name__)
-app.secret_key = "the_strongest_secret_key_in_the_world_12345"  
+app.secret_key = "the_strongest_secret_key_in_the_world_12345"
 
 DB_FILE = "mmu_ratings.db"
 
@@ -33,7 +33,7 @@ def setup_database():
     """)
 
     connection.execute("""
-        CREATE TABLE IF NOT EXIST courses (
+        CREATE TABLE IF NOT EXISTS courses (
                        id INTEGER PRIMARY KEY AUTOINCREMENT,
                        course_code TEXT NOT NULL UNIQUE,
                        course_name TEXT NOt NULL
@@ -42,7 +42,7 @@ def setup_database():
     """)
 
     connection.execute("""
-        CREATE TABLE IF NOT EXIST lectures (
+        CREATE TABLE IF NOT EXISTS lecturers (
                        id INTEGER PRIMARY KEY AUTOINCREMENT,
                        name TEXT NOT NULL,
                        faculty_id INTEGER,
@@ -52,12 +52,12 @@ def setup_database():
 """)
     
     connection.execute("""
-        CREATE TABLE IF NOT EXIST lecturer_courses (
+        CREATE TABLE IF NOT EXISTS lecturer_courses (
                        lecturer_id INTEGER NOT NULL,
                        course_id INTEGER NOT NULL,
                        PRIMARY KEY (lecturer_id, course_id),
                        FOREIGN KEY (lecturer_id), REFERENCES lecturers(id),
-                       FOREIGN KEY (course_id), REFERENCES courses(id)
+                       FOREIGN KEY (course_id) REFERENCES courses(id)
                        )
 """)
                        
@@ -75,7 +75,10 @@ def setup_database():
             submitted_at  DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
-
+    try:
+        connection.execute("ALTER TABLE lecturers add COLUMN image TEXT")
+    except Exception:
+        pass
     connection.commit()
     connection.close()
 
@@ -91,9 +94,9 @@ def get_all_lecturers_with_scores():
         SELECT
             l.id,
             l.name,
-            l.faculty,
-            l.course,
-            l.course_code,
+            f.name AS faculty,
+            c.course_name AS course,
+            c.course_code,                           
             COUNT(r.id) AS review_count,
             ROUND(AVG((r.grading + r.teaching + r.strictness + r.communication + r.textbooks) / 5.0), 1) AS overall,
             ROUND(AVG(r.grading), 1)       AS avg_grading,
@@ -102,6 +105,9 @@ def get_all_lecturers_with_scores():
             ROUND(AVG(r.communication), 1) AS avg_communication,
             ROUND(AVG(r.textbooks), 1)     AS avg_textbooks
         FROM lecturers l
+        LEFT JOIN faculties f ON l.faculty_id = f.id
+        LEFT JOIN lecturer_courses lc ON l.id = lc.lecturer_id
+        LEFT JOIN courses c ON lc.course_id = c.id
         LEFT JOIN ratings r ON l.id = r.lecturer_id
         GROUP BY l.id
         ORDER BY overall DESC
@@ -123,9 +129,9 @@ def get_one_lecturer_with_scores(lecturer_id):
         SELECT
             l.id,
             l.name,
-            l.faculty,
-            l.course,
-            l.course_code,
+            f.name AS faculty,
+            c.course_name AS course,
+            c.course_code,
             COUNT(r.id) AS review_count,
             ROUND(AVG((r.grading + r.teaching + r.strictness + r.communication + r.textbooks) / 5.0), 1) AS overall,
             ROUND(AVG(r.grading), 1)       AS avg_grading,
@@ -134,6 +140,9 @@ def get_one_lecturer_with_scores(lecturer_id):
             ROUND(AVG(r.communication), 1) AS avg_communication,
             ROUND(AVG(r.textbooks), 1)     AS avg_textbooks
         FROM lecturers l
+        LEFT JOIN faculties f ON l.faculty_id = f.id
+        LEFT JOIN lecturer_courses lc ON l.id = lc.lecturer_id
+        LEFT JOIN courses c ON lc.course_id = c.id
         LEFT JOIN ratings r ON l.id = r.lecturer_id
         WHERE l.id = ?
         GROUP BY l.id
@@ -267,8 +276,7 @@ def add_lecturer_page():
     return render_template("add_lecturer.html", lecturers=all_lecturers)
 
 
-# it does NOT run if this file is imported by another file
-if __name__ == "__main__":
-    setup_database()
+setup_database()
 
+if __name__ == "__main__":
     app.run(debug=True)
