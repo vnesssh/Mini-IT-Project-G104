@@ -50,6 +50,16 @@ def setup_database():
                        FOREIGN KEY (faculty_id) REFERENCES faculties (id)
                        )
 """)
+    
+    connection.execute("""
+        CREATE TABLE IF NOT EXIST lecturer_courses (
+                       lecturer_id INTEGER NOT NULL,
+                       course_id INTEGER NOT NULL,
+                       PRIMARY KEY (lecturer_id, course_id),
+                       FOREIGN KEY (lecturer_id), REFERENCES lecturers(id),
+                       FOREIGN KEY (course_id), REFERENCES courses(id)
+                       )
+""")
                        
     connection.execute("""
         CREATE TABLE IF NOT EXISTS ratings (
