@@ -1,9 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
-
 import sqlite3
 
 app = Flask(__name__)
-
 app.secret_key = "the_strongest_secret_key_in_the_world_12345"  
 
 DB_FILE = "mmu_ratings.db"
@@ -25,20 +23,25 @@ def setup_database():
     Creates the database tables if they don't exist yet.
     This runs once when the program starts.
 
-    We have 2 tables:
-      - lecturers : stores lecturer info (name, faculty, course, course code)
-      - ratings   : stores each student's rating for a lecturer
     """
     connection = connect_db()
     connection.execute("""
-        CREATE TABLE IF NOT EXISTS lecturers (
+        CREATE TABLE IF NOT EXISTS faculties (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            name        TEXT NOT NULL,
-            faculty     TEXT NOT NULL,
-            course      TEXT NOT NULL,
-            course_code TEXT NOT NULL
+            name        TEXT NOT NULL UNIQUE
         )
     """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXIST courses (
+                       id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       name TEXT NOT NULL,
+                       faculty_id INTEGER,
+                       image TEXT,
+                       FOREIGN KEY (faculty_id) REFERENCES faculties(id)
+         )
+    """)
+                       
     connection.execute("""
         CREATE TABLE IF NOT EXISTS ratings (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
