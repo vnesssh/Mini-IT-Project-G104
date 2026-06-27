@@ -85,16 +85,31 @@ def setup_database():
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             lecturer_id   INTEGER NOT NULL,
             student_id    TEXT NOT NULL,
-            grading       INTEGER NOT NULL,
-            teaching      INTEGER NOT NULL,
-            strictness    INTEGER NOT NULL,
-            communication INTEGER NOT NULL,
-            textbooks     INTEGER NOT NULL,
             comment       TEXT,
             submitted_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (lecturer_id) REFERENCES lecturers(id)
         )
     """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rating_categories (
+            id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rating_scores (
+            rating_id   INTEGER NOT NULL,
+            category_id INTEGER NOT NULL,
+            score       INTEGER NOT NULL,
+            PRIMARY KEY (rating_id, category_id),
+            FOREIGN KEY (rating_id)   REFERENCES ratings(id),
+            FOREIGN KEY (category_id) REFERENCES rating_categories(id)
+        )
+    """)
+    for cat in ("grading","teaching","strictness","communication","textbooks"):
+        conn.execute("INSERT OR IGNORE INTO rating_categories (name) VALUES (?)", (cat,))
+
 
     conn.commit()
     conn.close()
@@ -208,10 +223,21 @@ def profile_page(lecturer_id):
     if lecturer is None:
         return "Lecturer not found", 404
     conn = connect_db()
-    reviews = conn.execute(
-        "SELECT * FROM ratings WHERE lecturer_id = ? ORDER BY submitted_at DESC",
-        (lecturer_id,)
-    ).fetchall()
+    reviews = conn.execute("""
+        SELECT
+            r.id, r.student_id, r.comment, r.submitted_at,
+            MAX(CASE WHEN rc.name = 'grading'       THEN rs.score END) AS grading,
+            MAX(CASE WHEN rc.name = 'teaching'      THEN rs.score END) AS teaching,
+            MAX(CASE WHEN rc.name = 'strictness'    THEN rs.score END) AS strictness,
+            MAX(CASE WHEN rc.name = 'communication' THEN rs.score END) AS communication,
+            MAX(CASE WHEN rc.name = 'textbooks'     THEN rs.score END) AS textbooks
+        FROM ratings r
+        LEFT JOIN rating_scores     rs ON r.id        = rs.rating_id
+        LEFT JOIN rating_categories rc ON rs.category_id = rc.id
+        WHERE r.lecturer_id = ?
+        GROUP BY r.id
+        ORDER BY r.submitted_at DESC
+    """, (lecturer_id,)).fetchall()
     conn.close()
     return render_template("profile.html", lecturer=lecturer, reviews=reviews)
 
@@ -289,10 +315,20 @@ def rate_page(lecturer_id):
             conn.close()
             return redirect(url_for("rate_page", lecturer_id=lecturer_id))
 
-        conn.execute("""
-            INSERT INTO ratings (lecturer_id, student_id, grading, teaching, strictness, communication, textbooks, comment)
-            VALUES (?,?,?,?,?,?,?,?)
-        """, (lecturer_id, student_id, *scores, comment))
+        cur = conn.execute(
+            "INSERT INTO ratings (lecturer_id, student_id, comment) VALUES (?,?,?)",
+            (lecturer_id, student_id, comment)
+        )
+        rating_id = cur.lastrowid
+        category_names = ["grading","teaching","strictness","communication","textbooks"]
+        for name, score in zip(category_names, scores):
+            cat = conn.execute(
+                "SELECT id FROM rating_categories WHERE name = ?", (name,)
+            ).fetchone()
+            conn.execute(
+                "INSERT INTO rating_scores (rating_id, category_id, score) VALUES (?,?,?)",
+                (rating_id, cat["id"], score)
+            )
         conn.commit()
         conn.close()
         flash("Your rating has been submitted. Thank you!", "success")
@@ -345,12 +381,44 @@ def admin_accept(request_id):
 
     if req:
         conn = connect_db()
+        faculty_row = conn.execute(
+            "SELECT id FROM faculties WHERE name = ?", (req["faculty"],)
+        ).fetchone()
+        if faculty_row:
+            faculty_id = faculty_row["id"]
+        else:
+            cur = conn.execute(
+                "INSERT INTO faculties (name) VALUES (?)", (req["faculty"],)
+            )
+            faculty_id = cur.lastrowid
+
+        course_row = conn.execute(
+            "SELECT id FROM courses WHERE course_code = ?", (req["course_code"],)
+        ).fetchone()
+        if course_row:
+            course_id = course_row["id"]
+        else:
+            cur = conn.execute(
+                "INSERT INTO courses (course_code, course_name, faculty_id) VALUES (?,?,?)",
+                (req["course_code"], req["course"], faculty_id)
+            )
+            course_id = cur.lastrowid
+
+        cur = conn.execute(
+                "INSERT INTO lecturers (name, faculty_id, image) VALUES (?,?,?)",
+                (req["name"], faculty_id, req["image"])
+         )
+            
+        lecturer_id = cur.lastrowid
+
         conn.execute(
-            "INSERT INTO lecturers (name, faculty, course, course_code, image) VALUES (?,?,?,?,?)",
-            (req["name"], req["faculty"], req["course"], req["course_code"], req["image"])
+            "INSERT OR IGNORE INTO lecturer_courses (lecturer_id, course_id) VALUES (?,?)",
+            (lecturer_id, course_id)
         )
+
         conn.commit()
         conn.close()
+
         pconn.execute("DELETE FROM requests WHERE id = ?", (request_id,))
         pconn.commit()
         flash(f'"{req["name"]}" has been approved and added to the directory.', "success")
