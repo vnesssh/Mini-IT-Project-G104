@@ -41,16 +41,45 @@ def connect_pending():
 
 def setup_database():
     conn = connect_db()
+
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS lecturers (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            name        TEXT NOT NULL,
-            faculty     TEXT,
-            course      TEXT,
-            course_code TEXT,
-            image       TEXT
+        CREATE TABLE IF NOT EXISTS faculties (
+            id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE 
         )
     """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS courses (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_code TEXT NOT NULL UNIQUE,
+            course_name TEXT NOT NULL,
+            faculty_id  INTEGER NOT NULL,
+            FOREIGN KEY (faculty_id) REFERENCES faculties(id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS lecturers (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL,
+            faculty_id INTEGER NOT NULL,
+            image      TEXT,
+            FOREIGN KEY (faculty_id) REFERENCES faculties(id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS lecturer_courses (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            lecturer_id INTEGER NOT NULL,
+            course_id   INTEGER NOT NULL,
+            UNIQUE (lecturer_id, course_id),
+            FOREIGN KEY (lecturer_id) REFERENCES lecturers(id),
+            FOREIGN KEY (course_id)   REFERENCES courses(id)
+        )
+    """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ratings (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,13 +91,11 @@ def setup_database():
             communication INTEGER NOT NULL,
             textbooks     INTEGER NOT NULL,
             comment       TEXT,
-            submitted_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+            submitted_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (lecturer_id) REFERENCES lecturers(id)
         )
     """)
-    try:
-        conn.execute("ALTER TABLE lecturers ADD COLUMN image TEXT")
-    except Exception:
-        pass
+
     conn.commit()
     conn.close()
 
@@ -95,16 +122,26 @@ def get_all_lecturers():
     conn = connect_db()
     rows = conn.execute("""
         SELECT
-            l.id, l.name, l.faculty, l.course, l.course_code, l.image,
-            COUNT(r.id) AS review_count,
-            ROUND(AVG((r.grading + r.teaching + r.strictness + r.communication + r.textbooks) / 5.0), 1) AS overall,
-            ROUND(AVG(r.grading), 1)       AS avg_grading,
-            ROUND(AVG(r.teaching), 1)      AS avg_teaching,
-            ROUND(AVG(r.strictness), 1)    AS avg_strictness,
-            ROUND(AVG(r.communication), 1) AS avg_communication,
-            ROUND(AVG(r.textbooks), 1)     AS avg_textbooks
+            l.id,
+            l.name,
+            l.image,
+            GROUP_CONCAT(DISTINCT f.name)        AS faculty,
+            GROUP_CONCAT(DISTINCT c.course_name) AS course,
+            GROUP_CONCAT(DISTINCT c.course_code) AS course_code,
+            COUNT(DISTINCT r.id)                 AS review_count,
+            ROUND(AVG(rs.score), 1)              AS overall,
+            ROUND(AVG(CASE WHEN rc.name = 'grading'       THEN rs.score END), 1) AS avg_grading,
+            ROUND(AVG(CASE WHEN rc.name = 'teaching'      THEN rs.score END), 1) AS avg_teaching,
+            ROUND(AVG(CASE WHEN rc.name = 'strictness'    THEN rs.score END), 1) AS avg_strictness,
+            ROUND(AVG(CASE WHEN rc.name = 'communication' THEN rs.score END), 1) AS avg_communication,
+            ROUND(AVG(CASE WHEN rc.name = 'textbooks'     THEN rs.score END), 1) AS avg_textbooks
         FROM lecturers l
-        LEFT JOIN ratings r ON l.id = r.lecturer_id
+        LEFT JOIN lecturer_courses  lc ON l.id        = lc.lecturer_id
+        LEFT JOIN courses            c ON lc.course_id = c.id
+        LEFT JOIN faculties          f ON c.faculty_id = f.id
+        LEFT JOIN ratings            r ON l.id        = r.lecturer_id
+        LEFT JOIN rating_scores     rs ON r.id        = rs.rating_id
+        LEFT JOIN rating_categories rc ON rs.category_id = rc.id
         GROUP BY l.id
         ORDER BY overall DESC NULLS LAST, l.name ASC
     """).fetchall()
@@ -116,16 +153,26 @@ def get_one_lecturer(lecturer_id):
     conn = connect_db()
     row = conn.execute("""
         SELECT
-            l.id, l.name, l.faculty, l.course, l.course_code, l.image,
-            COUNT(r.id) AS review_count,
-            ROUND(AVG((r.grading + r.teaching + r.strictness + r.communication + r.textbooks) / 5.0), 1) AS overall,
-            ROUND(AVG(r.grading), 1)       AS avg_grading,
-            ROUND(AVG(r.teaching), 1)      AS avg_teaching,
-            ROUND(AVG(r.strictness), 1)    AS avg_strictness,
-            ROUND(AVG(r.communication), 1) AS avg_communication,
-            ROUND(AVG(r.textbooks), 1)     AS avg_textbooks
+            l.id,
+            l.name,
+            l.image,
+            GROUP_CONCAT(DISTINCT f.name)        AS faculty,
+            GROUP_CONCAT(DISTINCT c.course_name) AS course,
+            GROUP_CONCAT(DISTINCT c.course_code) AS course_code,
+            COUNT(DISTINCT r.id)                 AS review_count,
+            ROUND(AVG(rs.score), 1)              AS overall,
+            ROUND(AVG(CASE WHEN rc.name = 'grading'       THEN rs.score END), 1) AS avg_grading,
+            ROUND(AVG(CASE WHEN rc.name = 'teaching'      THEN rs.score END), 1) AS avg_teaching,
+            ROUND(AVG(CASE WHEN rc.name = 'strictness'    THEN rs.score END), 1) AS avg_strictness,
+            ROUND(AVG(CASE WHEN rc.name = 'communication' THEN rs.score END), 1) AS avg_communication,
+            ROUND(AVG(CASE WHEN rc.name = 'textbooks'     THEN rs.score END), 1) AS avg_textbooks
         FROM lecturers l
-        LEFT JOIN ratings r ON l.id = r.lecturer_id
+        LEFT JOIN lecturer_courses  lc ON l.id        = lc.lecturer_id
+        LEFT JOIN courses            c ON lc.course_id = c.id
+        LEFT JOIN faculties          f ON c.faculty_id = f.id
+        LEFT JOIN ratings            r ON l.id        = r.lecturer_id
+        LEFT JOIN rating_scores     rs ON r.id        = rs.rating_id
+        LEFT JOIN rating_categories rc ON rs.category_id = rc.id
         WHERE l.id = ?
         GROUP BY l.id
     """, (lecturer_id,)).fetchone()
