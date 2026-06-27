@@ -8,7 +8,8 @@ Install:  pip install flask
 """
 
 import os, sqlite3, uuid, base64
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session 
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = "mmu_secret_key_2024"
@@ -22,6 +23,8 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 PENDING_DB = os.path.join(BASE_DIR, "pending.db")
 # -------- ADMIN ----------
 
+ADMIN_USERNAME = "NothingPhone3a"
+ADMIN_PASSWORD = generate_password_hash("OatKrunch67")
 
 # ── Database helpers ────────────────────────────────────────────────────────
 
@@ -107,6 +110,16 @@ def setup_database():
             FOREIGN KEY (category_id) REFERENCES rating_categories(id)
         )
     """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS students (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id    TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        registered_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+""")
+
     for cat in ("grading","teaching","strictness","communication","textbooks"):
         conn.execute("INSERT OR IGNORE INTO rating_categories (name) VALUES (?)", (cat,))
 
@@ -209,6 +222,32 @@ def save_image(data_url):
         print(f"Image save error: {e}")
         return None
 
+# student authentication
+
+def is_student():
+    return "student_id" in session
+
+def require_student(lecturer_id=None):
+    
+    if not is_student():
+        flash("Please log in to rate lecturers ya.", "error")
+        
+        if lecturer_id:
+            return redirect(url_for("student_login_page", next=lecturer_id))
+        
+        return redirect(url_for("student_login_page"))
+
+    return None
+
+
+def is_admin():
+    return session .get("admin_logged_in") is True
+
+def require_admin():
+    if not is_admin():
+        flash("Admin access required.", "error")
+        return redirect(url_for("admin_login_page"))
+    return None
 
 # ── Pages ───────────────────────────────────────────────────────────────────
 
@@ -277,6 +316,10 @@ def request_professor_page():
 
 @app.route("/rate/<int:lecturer_id>", methods=["GET", "POST"])
 def rate_page(lecturer_id):
+    
+    if redir := require_student(lecturer_id):
+        return redir
+    
     conn = connect_db()
     lecturer = conn.execute("SELECT * FROM lecturers WHERE id = ?", (lecturer_id,)).fetchone()
     conn.close()
@@ -284,7 +327,7 @@ def rate_page(lecturer_id):
         return "Lecturer not found", 404
 
     if request.method == "POST":
-        student_id    = request.form.get("student_id", "").strip()
+        student_id    = session["student_id"]
         grading       = request.form.get("grading", "")
         teaching      = request.form.get("teaching", "")
         strictness    = request.form.get("strictness", "")
@@ -292,8 +335,8 @@ def rate_page(lecturer_id):
         textbooks     = request.form.get("textbooks", "")
         comment       = request.form.get("comment", "").strip()
 
-        if not all([student_id, grading, teaching, strictness, communication, textbooks]):
-            flash("Please fill in your Student ID and all 5 rating categories.", "error")
+        if not all([grading, teaching, strictness, communication, textbooks]):
+            flash("Please fill in all 5 rating categories.", "error")
             return redirect(url_for("rate_page", lecturer_id=lecturer_id))
 
         try:
@@ -359,10 +402,67 @@ def api_search():
     } for r in rows])
 
 
+# ── Student login / logout ───────────────────────────────────────────────────
+@app.route("/login", methods=["GET", "POST"])
+def student_login_page():
+    next_id = request.args.get("next")
+    if request.method == "POST":
+        student_id = request.form.get("student_id", "").strip()
+        password   = request.form.get("password", "")
+        conn = connect_db()
+        student = conn.execute(
+            "SELECT * FROM students WHERE student_id = ?", (student_id,)
+        ).fetchone()
+        conn.close()
+        if not student:
+            flash("Student ID not found. Please register first.", "error")
+        elif not check_password_hash(student["password_hash"], password):
+            flash("Incorrect password.", "error")
+        else:
+            session["student_id"] = student_id
+            if next_id:
+                return redirect(url_for("rate_page", lecturer_id=next_id))
+            return redirect(url_for("home_page"))
+    return render_template("login.html", next=next_id)
+
+@app.route("/logout", methods=["POST"])
+def student_logout():
+    session.pop("student_id", None)
+    flash("You have been logged out.", "success")
+    return redirect(url_for("home_page"))
+
+# ── Admin login / logout ──────────────────────────────────────────────────────
+# CHANGED: new routes — admin must prove identity before seeing the dashboard.
+ 
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login_page():
+    # Already logged in? Go straight to dashboard
+    if is_admin():
+        return redirect(url_for("admin_page"))
+ 
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD, password):
+            session["admin_logged_in"] = True
+            flash("Welcome, admin.", "success")
+            return redirect(url_for("admin_page"))
+        flash("Incorrect username or password.", "error")
+ 
+    return render_template("admin_login.html")
+ 
+@app.route("/admin/logout", methods=["POST"])
+def admin_logout():
+    session.clear()
+    flash("You have been logged out.", "success")
+    return redirect(url_for("admin_login_page"))
+
 # -------- ADMIN ----------
 # NEW ROUTE: Admin dashboard — shows all pending requests
 @app.route("/admin")
 def admin_page():
+    if redir := require_admin():
+        return redir
     pconn = connect_pending()
     pending = pconn.execute(
         "SELECT * FROM requests ORDER BY submitted_at DESC"
@@ -374,6 +474,8 @@ def admin_page():
 # NEW ROUTE: Accept — moves request from pending.db into mmu_ratings.db
 @app.route("/admin/accept/<int:request_id>", methods=["POST"])
 def admin_accept(request_id):
+    if redir := require_admin():
+        return redir
     pconn = connect_pending()
     req = pconn.execute(
         "SELECT * FROM requests WHERE id = ?", (request_id,)
@@ -426,10 +528,46 @@ def admin_accept(request_id):
     pconn.close()
     return redirect(url_for("admin_page"))
 
+@app.route("/register", methods=["GET", "POST"])
+def student_register_page():
+    if request.method == "POST":
+        student_id = request.form.get("student_id", "").strip()
+        password   = request.form.get("password", "")
+        confirm    = request.form.get("confirm", "")
+       
+        if not student_id or not password:
+            flash("Please fill in all fields.", "error")
+            return redirect(url_for("student_register_page"))
+       
+        if password != confirm:
+            flash("Passwords do not match.", "error")
+            return redirect(url_for("student_register_page"))
+       
+        conn = connect_db()
+        existing = conn.execute(
+            "SELECT 1 FROM students WHERE student_id = ?", (student_id,)
+        ).fetchone()
+       
+        if existing:
+            flash("That student ID is already registered.", "error")
+            conn.close()
+            return redirect(url_for("student_register_page"))
+        
+        conn.execute(
+            "INSERT INTO students (student_id, password_hash) VALUES (?,?)",
+            (student_id, generate_password_hash(password))
+        )
+        conn.commit()
+        conn.close()
+        flash("Account created! Please log in.", "success")
+        return redirect(url_for("student_login_page"))
+    return render_template("register.html")
 
 # NEW ROUTE: Decline — deletes request from pending.db
 @app.route("/admin/decline/<int:request_id>", methods=["POST"])
 def admin_decline(request_id):
+    if redir := require_admin():
+        return redir
     pconn = connect_pending()
     req = pconn.execute(
         "SELECT name FROM requests WHERE id = ?", (request_id,)

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head><title>Student Login</title></head>
+<body>
+    <h1>Student Login</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <p><b>{{ message }}</b></p>
+        {% endfor %}
+    {% endwith %}
+    <form method="POST">
+        <p>Student ID: <input type="text" name="student_id"></p>
+        <p>Password: <input type="password" name="password"></p>
+        <input type="hidden" name="next" value="{{ next }}">
+        <button type="submit">Login</button>
+    </form>
+    <a href="/register">Don't have an account? Register here</a>
+</body>
+</html>
