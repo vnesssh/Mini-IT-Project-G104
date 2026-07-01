@@ -541,6 +541,10 @@ def student_register_page():
         if not student_id or not password:
             flash("Please fill in all fields.", "error")
             return redirect(url_for("student_register_page"))
+        
+        if len(password) < 8:
+            flash("Password must be at least 8 characters.", "error")
+            return redirect(url_for("student_register_page"))
        
         if password != confirm:
             flash("Passwords do not match.", "error")
