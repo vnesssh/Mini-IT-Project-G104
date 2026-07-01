@@ -10,9 +10,11 @@ Install:  pip install flask
 import os, sqlite3, uuid, base64
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session 
 from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import timedelta
 
 app = Flask(__name__)
 app.secret_key = "mmu_secret_key_2024"
+app.permanent_session_lifetime = timedelta(hours=0.5)   
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 DB_FILE     = os.path.join(BASE_DIR, "mmu_ratings.db")
@@ -419,6 +421,7 @@ def student_login_page():
         elif not check_password_hash(student["password_hash"], password):
             flash("Incorrect password.", "error")
         else:
+            session.permanent = True
             session["student_id"] = student_id
             if next_id:
                 return redirect(url_for("rate_page", lecturer_id=next_id))
