@@ -13,7 +13,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import timedelta
 
 app = Flask(__name__)
-app.secret_key = "mmu_secret_key_2024"
+app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)
 app.permanent_session_lifetime = timedelta(hours=0.5)   
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
@@ -471,7 +471,7 @@ def admin_page():
         "SELECT * FROM requests ORDER BY submitted_at DESC"
     ).fetchall()
     pconn.close()
-    return render_template("admin.html", requests=pending)
+    return render_template("admin.html", requests=pending,)
 
 
 # NEW ROUTE: Accept — moves request from pending.db into mmu_ratings.db
@@ -586,8 +586,17 @@ def admin_decline(request_id):
     if req:
         flash(f'"{req["name"]}" request has been declined and removed.', "error")
     return redirect(url_for("admin_page"))
+
+# route to lists of lecturers (admin)
+@app.route("/admin/lecturers")
+def admin_lecturers_page():
+    if redir := require_admin():
+        return redir
+    all_lecturers = get_all_lecturers()
+    return render_template("admin-lecturers.html", lecturers=all_lecturers)
+
 # -------- ADMIN ----------
-# -------- ADMIN ----------
+
 # NEW ROUTE: Delete a lecturer and all associated data
 @app.route("/admin/delete-lecturer/<int:lecturer_id>", methods=["POST"])
 def admin_delete_lecturer(lecturer_id):

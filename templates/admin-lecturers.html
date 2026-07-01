@@ -3,12 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin — MMU RateMyProfessor</title>
+  <title>Manage Lecturers — MMU RateMyProfessor</title>
   <link rel="stylesheet" href="/static/styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
-
   <header class="navbar">
     <div class="nav-logo">
       <a href="/" style="text-decoration:none;"><span class="mm">MM</span><span class="u">U</span></a>
@@ -19,79 +18,57 @@
       <a href="/admin" style="color:var(--dark-blue); font-weight:700;">Admin</a>
     </nav>
   </header>
-
   <main class="form-page" style="align-items:flex-start; padding-top:40px;">
     <div style="width:100%; max-width:820px; margin:0 auto;">
-
       <div style="margin-bottom:28px;">
-        <h2 class="form-title">Admin Dashboard</h2>
-        <p class="form-subtitle">Review pending professor requests. Accept to add them to the directory, or decline to remove them.</p>
-        <a href="/admin/lecturers" class="admin-btn accept-btn" style="text-decoration:none; display:inline-block; margin-top:12px;">📋 Manage Lecturers</a>
+        <h2 class="form-title">Manage Lecturers</h2>
+        <p class="form-subtitle">Edit lecturer details or remove them from the directory.</p>
       </div>
 
-      <!-- Flash messages -->
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% for cat, msg in messages %}
           <div class="status-msg {{ cat }}" style="margin-bottom:20px;">{{ msg }}</div>
         {% endfor %}
       {% endwith %}
 
-      {% if requests %}
+      {% if lecturers %}
         <p style="font-size:.82rem; color:var(--grey-mid); margin-bottom:16px;">
-          {{ requests|length }} pending request{{ "s" if requests|length != 1 }}
+          {{ lecturers|length }} lecturer{{ "s" if lecturers|length != 1 }} in directory
         </p>
-
-        {% for req in requests %}
+        {% for lect in lecturers %}
         <div class="admin-request-card">
-
-          <!-- Photo -->
           <div class="admin-photo-wrap">
-            {% if req.image %}
-              <img src="/static/uploads/{{ req.image }}" alt="{{ req.name }}" class="admin-photo" />
+            {% if lect.image %}
+              <img src="/static/uploads/{{ lect.image }}" alt="{{ lect.name }}" class="admin-photo" />
             {% else %}
               <div class="admin-photo-placeholder">👤</div>
             {% endif %}
-		
           </div>
-
-          <!-- Info -->
           <div class="admin-info">
-            <p class="admin-name">{{ req.name }}</p>
-            <p class="admin-detail"><strong>Faculty:</strong> {{ req.faculty or "—" }}</p>
-            <p class="admin-detail"><strong>Course:</strong> {{ req.course or "—" }}</p>
+            <p class="admin-name">{{ lect.name }}</p>
+            <p class="admin-detail"><strong>Faculty:</strong> {{ lect.faculty or "—" }}</p>
+            <p class="admin-detail"><strong>Course:</strong> {{ lect.course or "—" }}</p>
             <p class="admin-detail"><strong>Code:</strong>
-              {% if req.course_code %}
-                <span class="code-badge">{{ req.course_code }}</span>
+              {% if lect.course_code %}
+                <span class="code-badge">{{ lect.course_code }}</span>
               {% else %}—{% endif %}
             </p>
-            <p class="admin-detail admin-date">Submitted: {{ req.submitted_at[:16] }}</p>
+            <p class="admin-detail admin-date">{{ lect.review_count }} review{{ "s" if lect.review_count != 1 }} · Overall: {{ lect.overall or "—" }}</p>
           </div>
-
-          <!-- Buttons -->
           <div class="admin-actions">
-            <form method="POST" action="/admin/accept/{{ req.id }}">
-              <button type="submit" class="admin-btn accept-btn">✅ Accept</button>
-            </form>
-            <form method="POST" action="/admin/decline/{{ req.id }}">
-              <button type="submit" class="admin-btn decline-btn">❌ Decline</button>
-            </form>
+            <a href="/admin/edit-lecturer/{{ lect.id }}" class="admin-btn accept-btn" style="text-decoration:none; display:inline-block; text-align:center;">✏️ Edit</a>
           </div>
-
         </div>
         {% endfor %}
-
       {% else %}
         <div class="admin-empty">
-          <p>🎉 No pending requests right now.</p>
+          <p>No lecturers in the directory yet.</p>
         </div>
       {% endif %}
-
     </div>
   </main>
-
   <footer class="footer">
     <p>&copy; 2026 MMU RateMyProfessor. All rights reserved.</p>
   </footer>
-
 </body>
 </html>
