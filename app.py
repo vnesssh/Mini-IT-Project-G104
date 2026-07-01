@@ -11,6 +11,7 @@ import os, sqlite3, uuid, base64
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session 
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import timedelta
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer 
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)
@@ -46,7 +47,9 @@ def connect_pending():
 
 def setup_database():
     conn = connect_db()
-
+    
+    conn.execute("PRAGMA foreign_keys = ON")
+   
     conn.execute("""
         CREATE TABLE IF NOT EXISTS faculties (
             id   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,6 +97,15 @@ def setup_database():
             submitted_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (lecturer_id) REFERENCES lecturers(id)
         )
+    """)
+
+    conn.execute("""
+         CREATE TABLE IF NOT EXISTS rating_analysis (
+        rating_id        INTEGER PRIMARY KEY,
+        sentiment        TEXT NOT NULL,
+        sentiment_score  REAL NOT NULL,
+        FOREIGN KEY (rating_id) REFERENCES ratings(id)
+    )
     """)
 
     conn.execute("""
