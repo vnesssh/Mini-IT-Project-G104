@@ -344,3 +344,36 @@ body {
   background: #fff; border: 1px solid var(--border);
   border-radius: 14px;
 }
+.sentiment-summary { margin-top: 16px; }
+.sentiment-summary-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #666;
+  display: block;
+  margin-bottom: 6px;
+}
+.sentiment-bar-wrap {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #eee;
+}
+.sentiment-bar { height: 100%; }
+.sentiment-positive { background: #2ecc71; }
+.sentiment-neutral  { background: #f39c12; }
+.sentiment-negative { background: #e74c3c; }
+.sentiment-summary-legend {
+  font-size: 0.75rem;
+  color: #777;
+  margin-top: 6px;
+}
+.sentiment-badge {
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin: 0 8px;
+}

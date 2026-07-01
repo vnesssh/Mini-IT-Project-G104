@@ -14,6 +14,7 @@ from datetime import timedelta
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer 
 
 app = Flask(__name__)
+analyzer = SentimentIntensityAnalyzer()
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)
 app.permanent_session_lifetime = timedelta(hours=0.5)   
 
@@ -207,7 +208,10 @@ def get_one_lecturer(lecturer_id):
             ROUND(AVG(CASE WHEN rc.name = 'teaching'      THEN rs.score END), 1) AS avg_teaching,
             ROUND(AVG(CASE WHEN rc.name = 'strictness'    THEN rs.score END), 1) AS avg_strictness,
             ROUND(AVG(CASE WHEN rc.name = 'communication' THEN rs.score END), 1) AS avg_communication,
-            ROUND(AVG(CASE WHEN rc.name = 'textbooks'     THEN rs.score END), 1) AS avg_textbooks
+            ROUND(AVG(CASE WHEN rc.name = 'textbooks'     THEN rs.score END), 1) AS avg_textbooks,
+            COUNT(DISTINCT CASE WHEN ra.sentiment = 'Positive' THEN r.id END) AS positive_count,
+            COUNT(DISTINCT CASE WHEN ra.sentiment = 'Negative' THEN r.id END) AS negative_count,
+            COUNT(DISTINCT CASE WHEN ra.sentiment = 'Neutral'  THEN r.id END) AS neutral_count
         FROM lecturers l
         LEFT JOIN lecturer_courses  lc ON l.id        = lc.lecturer_id
         LEFT JOIN courses            c ON lc.course_id = c.id
@@ -215,6 +219,7 @@ def get_one_lecturer(lecturer_id):
         LEFT JOIN ratings            r ON l.id        = r.lecturer_id
         LEFT JOIN rating_scores     rs ON r.id        = rs.rating_id
         LEFT JOIN rating_categories rc ON rs.category_id = rc.id
+        LEFT JOIN rating_analysis   ra ON r.id        = ra.rating_id
         WHERE l.id = ?
         GROUP BY l.id
     """, (lecturer_id,)).fetchone()
@@ -283,10 +288,13 @@ def profile_page(lecturer_id):
             MAX(CASE WHEN rc.name = 'teaching'      THEN rs.score END) AS teaching,
             MAX(CASE WHEN rc.name = 'strictness'    THEN rs.score END) AS strictness,
             MAX(CASE WHEN rc.name = 'communication' THEN rs.score END) AS communication,
-            MAX(CASE WHEN rc.name = 'textbooks'     THEN rs.score END) AS textbooks
+            MAX(CASE WHEN rc.name = 'textbooks'     THEN rs.score END) AS textbooks,
+            ra.sentiment,
+            ra.sentiment_score
         FROM ratings r
         LEFT JOIN rating_scores     rs ON r.id        = rs.rating_id
         LEFT JOIN rating_categories rc ON rs.category_id = rc.id
+        LEFT JOIN rating_analysis   ra ON r.id        = ra.rating_id
         WHERE r.lecturer_id = ?
         GROUP BY r.id
         ORDER BY r.submitted_at DESC
@@ -377,14 +385,28 @@ def rate_page(lecturer_id):
             (lecturer_id, student_id, comment)
         )
         rating_id = cur.lastrowid
+
+ # ── ML SENTIMENT ANALYSIS ─────────────────────
+        score = analyzer.polarity_scores(comment)["compound"]
+        if score >= 0.05:
+            sentiment = "Positive"
+        elif score <= -0.05:
+            sentiment = "Negative"
+        else:
+            sentiment = "Neutral"
+        conn.execute(
+            "INSERT INTO rating_analysis (rating_id, sentiment, sentiment_score) VALUES (?,?,?)",
+            (rating_id, sentiment, score)
+    )
+# ──────────────────────────────────────────
         category_names = ["grading","teaching","strictness","communication","textbooks"]
-        for name, score in zip(category_names, scores):
+        for name, cat_score in zip(category_names, scores):
             cat = conn.execute(
                 "SELECT id FROM rating_categories WHERE name = ?", (name,)
             ).fetchone()
             conn.execute(
                 "INSERT INTO rating_scores (rating_id, category_id, score) VALUES (?,?,?)",
-                (rating_id, cat["id"], score)
+                (rating_id, cat["id"], cat_score)
             )
         conn.commit()
         conn.close()
@@ -392,8 +414,6 @@ def rate_page(lecturer_id):
         return redirect(url_for("profile_page", lecturer_id=lecturer_id))
 
     return render_template("rate.html", lecturer=lecturer)
-
-
 # ── API ─────────────────────────────────────────────────────────────────────
 
 @app.route("/api/search")
