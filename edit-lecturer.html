@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Edit Lecturer</title>
+</head>
+<body>
+    <h1>Edit Lecturer</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <ul>
+            {% for category, message in messages %}
+                <li>{{ message }}</li>
+            {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('admin_edit_lecturer', lecturer_id=lecturer['id']) }}">
+        <label for="name">Name:</label><br>
+        <input type="text" id="name" name="name" value="{{ lecturer['name'] }}" required><br><br>
+
+        <label for="faculty">Faculty:</label><br>
+        <input type="text" id="faculty" name="faculty" value="{{ lecturer['faculty'] }}"><br><br>
+
+        <button type="submit">Save Changes</button>
+    </form>
+
+    <form method="POST" action="{{ url_for('admin_delete_lecturer', lecturer_id=lecturer['id']) }}" onsubmit="return confirm('Delete this lecturer permanently?');">
+        <button type="submit">Delete Lecturer</button>
+    </form>
+
+    <a href="{{ url_for('admin_page') }}">Back to Admin Dashboard</a>
+</body>
+</html>

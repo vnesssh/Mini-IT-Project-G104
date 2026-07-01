@@ -587,7 +587,121 @@ def admin_decline(request_id):
         flash(f'"{req["name"]}" request has been declined and removed.', "error")
     return redirect(url_for("admin_page"))
 # -------- ADMIN ----------
+# -------- ADMIN ----------
+# NEW ROUTE: Delete a lecturer and all associated data
+@app.route("/admin/delete-lecturer/<int:lecturer_id>", methods=["POST"])
+def admin_delete_lecturer(lecturer_id):
+    if redir := require_admin():
+        return redir
 
+    conn = connect_db()
+    lecturer = conn.execute(
+        "SELECT * FROM lecturers WHERE id = ?", (lecturer_id,)
+    ).fetchone()
+
+    if lecturer is None:
+        conn.close()
+        flash("Lecturer not found.", "error")
+        return redirect(url_for("admin_page"))
+
+    # Delete rating_scores tied to this lecturer's ratings
+    conn.execute("""
+        DELETE FROM rating_scores
+        WHERE rating_id IN (SELECT id FROM ratings WHERE lecturer_id = ?)
+    """, (lecturer_id,))
+
+    # Delete the ratings themselves
+    conn.execute("DELETE FROM ratings WHERE lecturer_id = ?", (lecturer_id,))
+
+    # Delete lecturer-course links
+    conn.execute("DELETE FROM lecturer_courses WHERE lecturer_id = ?", (lecturer_id,))
+
+    # Delete the lecturer record
+    conn.execute("DELETE FROM lecturers WHERE id = ?", (lecturer_id,))
+
+    conn.commit()
+    conn.close()
+
+    # Clean up uploaded image file, if any
+    if lecturer["image"]:
+        image_path = os.path.join(UPLOAD_DIR, lecturer["image"])
+        if os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+            except Exception as e:
+                print(f"Image delete error: {e}")
+
+    flash(f'"{lecturer["name"]}" has been deleted.', "success")
+    return redirect(url_for("admin_page"))
+
+
+# NEW ROUTE: Edit a lecturer's name / faculty / image
+@app.route("/admin/edit-lecturer/<int:lecturer_id>", methods=["GET", "POST"])
+def admin_edit_lecturer(lecturer_id):
+    if redir := require_admin():
+        return redir
+
+    conn = connect_db()
+    lecturer = conn.execute(
+        "SELECT * FROM lecturers WHERE id = ?", (lecturer_id,)
+    ).fetchone()
+
+    if lecturer is None:
+        conn.close()
+        flash("Lecturer not found.", "error")
+        return redirect(url_for("admin_page"))
+
+    if request.method == "POST":
+        name        = request.form.get("name", "").strip()
+        faculty_name = request.form.get("faculty", "").strip()
+        image_b64   = request.form.get("image")  # optional new image, base64 data URL
+
+        if not name:
+            flash("Lecturer name is required.", "error")
+            conn.close()
+            return redirect(url_for("admin_edit_lecturer", lecturer_id=lecturer_id))
+
+        # Resolve or create faculty
+        faculty_row = conn.execute(
+            "SELECT id FROM faculties WHERE name = ?", (faculty_name,)
+        ).fetchone()
+        if faculty_row:
+            faculty_id = faculty_row["id"]
+        else:
+            cur = conn.execute(
+                "INSERT INTO faculties (name) VALUES (?)", (faculty_name,)
+            )
+            faculty_id = cur.lastrowid
+
+        # Handle optional new image
+        new_filename = save_image(image_b64) if image_b64 else None
+        if new_filename:
+            # remove old image file
+            if lecturer["image"]:
+                old_path = os.path.join(UPLOAD_DIR, lecturer["image"])
+                if os.path.exists(old_path):
+                    try:
+                        os.remove(old_path)
+                    except Exception as e:
+                        print(f"Image delete error: {e}")
+            conn.execute(
+                "UPDATE lecturers SET name = ?, faculty_id = ?, image = ? WHERE id = ?",
+                (name, faculty_id, new_filename, lecturer_id)
+            )
+        else:
+            conn.execute(
+                "UPDATE lecturers SET name = ?, faculty_id = ? WHERE id = ?",
+                (name, faculty_id, lecturer_id)
+            )
+
+        conn.commit()
+        conn.close()
+        flash(f'"{name}" has been updated.', "success")
+        return redirect(url_for("admin_page"))
+
+    conn.close()
+    return render_template("edit-lecturer.html", lecturer=lecturer)
+# -------- ADMIN ----------
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
