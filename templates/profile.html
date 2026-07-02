@@ -128,30 +128,65 @@
             </div>
             {% endfor %}
           </div>
-           {% set total_sent = (lecturer.positive_count or 0) + (lecturer.negative_count or 0) + (lecturer.neutral_count or 0) %}
-          {% if total_sent > 0 %}
-          <div class="sentiment-summary">
-            <span class="sentiment-summary-label">Review Tone</span>
-            <div class="sentiment-bar-wrap">
-              {% if lecturer.positive_count %}
-              <div class="sentiment-bar sentiment-positive" style="width: {{ (lecturer.positive_count / total_sent * 100)|round }}%;" title="{{ lecturer.positive_count }} positive"></div>
-              {% endif %}
-              {% if lecturer.neutral_count %}
-              <div class="sentiment-bar sentiment-neutral" style="width: {{ (lecturer.neutral_count / total_sent * 100)|round }}%;" title="{{ lecturer.neutral_count }} neutral"></div>
-              {% endif %}
-              {% if lecturer.negative_count %}
-              <div class="sentiment-bar sentiment-negative" style="width: {{ (lecturer.negative_count / total_sent * 100)|round }}%;" title="{{ lecturer.negative_count }} negative"></div>
-              {% endif %}
-            </div>
-            <div class="sentiment-summary-legend">
-              🙂 {{ lecturer.positive_count or 0 }} · 😐 {{ lecturer.neutral_count or 0 }} · 🙁 {{ lecturer.negative_count or 0 }}
-            </div>
-          </div>
-          {% endif %}
         </div>
       </div>
 
     </div><!-- /profile-card -->
+
+    <!-- ──────── TAGS SYSTEM ──────── -->
+    <div class="tags-section">
+      <div class="tags-header">
+        <h2 class="tags-title">Student Tags</h2>
+        {% if not is_student %}
+        <p class="tags-login-note">
+          <a href="/login">Log in</a> to vote on tags
+        </p>
+        {% endif %}
+      </div>
+
+      <div class="tags-columns">
+
+        <!-- PROS -->
+        <div class="tags-group">
+          <div class="tags-group-label tags-group-label--pro">👍 Pros</div>
+          <div class="tags-list" id="pros-list">
+            {% for tag in pros %}
+            <button
+              class="tag-chip tag-chip--pro {% if tag.voted %}tag-chip--active{% endif %}"
+              data-tag-id="{{ tag.id }}"
+              data-lecturer-id="{{ lecturer.id }}"
+              onclick="voteTag(this)"
+              {% if not is_student %}disabled title="Log in to vote"{% endif %}
+            >
+              {{ tag.label }}
+              <span class="tag-count" id="tag-count-{{ tag.id }}">{{ tag.vote_count }}</span>
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- CONS -->
+        <div class="tags-group">
+          <div class="tags-group-label tags-group-label--con">👎 Cons</div>
+          <div class="tags-list" id="cons-list">
+            {% for tag in cons %}
+            <button
+              class="tag-chip tag-chip--con {% if tag.voted %}tag-chip--active{% endif %}"
+              data-tag-id="{{ tag.id }}"
+              data-lecturer-id="{{ lecturer.id }}"
+              onclick="voteTag(this)"
+              {% if not is_student %}disabled title="Log in to vote"{% endif %}
+            >
+              {{ tag.label }}
+              <span class="tag-count" id="tag-count-{{ tag.id }}">{{ tag.vote_count }}</span>
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+
+      </div><!-- /tags-columns -->
+    </div>
+    <!-- ──────── TAGS SYSTEM ──────── -->
 
     <!-- Reviews section -->
     {% if reviews %}
@@ -159,33 +194,20 @@
       <h2 class="reviews-title">Student Reviews</h2>
       {% for r in reviews %}
       <div class="review-card">
-  <div class="review-header">
-    <span class="review-id">Anonymous student</span>
-    {% if r.sentiment %}
-      {% if r.sentiment == "Positive" %}
-        {% set s_color = "#2ecc71" %}
-        {% set s_icon = "🙂" %}
-      {% elif r.sentiment == "Negative" %}
-        {% set s_color = "#e74c3c" %}
-        {% set s_icon = "🙁" %}
-      {% else %}
-        {% set s_color = "#f39c12" %}
-        {% set s_icon = "😐" %}
-      {% endif %}
-      <span class="sentiment-badge" style="background: {{ s_color }};">{{ s_icon }} {{ r.sentiment }}</span>
-    {% endif %}
-    <span class="review-date">{{ r.submitted_at[:10] }}</span>
-  </div>
-  {% if r.comment %}
-  <p class="review-comment">"{{ r.comment }}"</p>
-  {% endif %}
-  <div class="review-scores">
-    {% for label, val in [("Grading", r.grading), ("Teaching", r.teaching),
-      ("Strictness", r.strictness), ("Communication", r.communication), ("Textbooks", r.textbooks)] %}
-    <span class="score-chip">{{ label }}: {{ val }}/5</span>
-    {% endfor %}
-  </div>
-</div>
+        <div class="review-header">
+          <span class="review-id">Anonymous student</span>
+          <span class="review-date">{{ r.submitted_at[:10] }}</span>
+        </div>
+        {% if r.comment %}
+        <p class="review-comment">"{{ r.comment }}"</p>
+        {% endif %}
+        <div class="review-scores">
+          {% for label, val in [("Grading", r.grading), ("Teaching", r.teaching),
+            ("Strictness", r.strictness), ("Communication", r.communication), ("Textbooks", r.textbooks)] %}
+          <span class="score-chip">{{ label }}: {{ val }}/5</span>
+          {% endfor %}
+        </div>
+      </div>
       {% endfor %}
     </div>
     {% endif %}
@@ -236,6 +258,42 @@
         if (d.length >= 1) window.location.href = `/lecturer/${d[0].id}`;
       } catch {}
     }
+
+    // --------------TAGS SYSTEM--------
+    async function voteTag(btn) {
+      const tagId      = btn.dataset.tagId;
+      const lecturerId = btn.dataset.lecturerId;
+
+      btn.disabled = true;
+
+      try {
+        const res = await fetch("/api/tag-vote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tag_id: parseInt(tagId), lecturer_id: parseInt(lecturerId) })
+        });
+
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+
+        const data = await res.json();
+        // Update count
+        document.getElementById(`tag-count-${tagId}`).textContent = data.count;
+        // Toggle active style
+        if (data.voted) {
+          btn.classList.add("tag-chip--active");
+        } else {
+          btn.classList.remove("tag-chip--active");
+        }
+      } catch (e) {
+        console.error("Tag vote error", e);
+      }
+
+      btn.disabled = false;
+    }
+    // --------------TAGS SYSTEM--------
   </script>
 
 </body>

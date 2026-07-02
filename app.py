@@ -59,9 +59,7 @@ def connect_pending():
 
 def setup_database():
     conn = connect_db()
-    
-    conn.execute("PRAGMA foreign_keys = ON")
-   
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS faculties (
             id   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,15 +107,6 @@ def setup_database():
             submitted_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (lecturer_id) REFERENCES lecturers(id)
         )
-    """)
-
-    conn.execute("""
-         CREATE TABLE IF NOT EXISTS rating_analysis (
-        rating_id        INTEGER PRIMARY KEY,
-        sentiment        TEXT NOT NULL,
-        sentiment_score  REAL NOT NULL,
-        FOREIGN KEY (rating_id) REFERENCES ratings(id)
-    )
     """)
 
     conn.execute("""
@@ -175,6 +164,58 @@ def setup_database():
     pconn.close()
     # -------- ADMIN ----------
 
+    # --------------TAGS SYSTEM--------
+    # Creates the tags and tag_votes tables in mmu_ratings.db
+    conn = connect_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tags (
+            id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT NOT NULL UNIQUE,
+            type  TEXT NOT NULL CHECK(type IN ('pro', 'con'))
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tag_votes (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            lecturer_id INTEGER NOT NULL,
+            tag_id      INTEGER NOT NULL,
+            student_id  TEXT NOT NULL,
+            UNIQUE (lecturer_id, tag_id, student_id),
+            FOREIGN KEY (lecturer_id) REFERENCES lecturers(id),
+            FOREIGN KEY (tag_id)      REFERENCES tags(id)
+        )
+    """)
+    # Seed the default tags (INSERT OR IGNORE so re-runs are safe)
+    default_tags = [
+        ("Grades fairly",              "pro"),
+        ("Explains concepts clearly",  "pro"),
+        ("Helpful outside class",      "pro"),
+        ("Gives useful feedback",      "pro"),
+        ("Engaging teaching style",    "pro"),
+        ("Provides extra resources",   "pro"),
+        ("Lenient with deadlines",     "pro"),
+        ("Encourages participation",   "pro"),
+        ("Provides recorded sessions", "pro"),
+        ("Marks assignments quickly",  "pro"),
+        ("Strict on attendance",       "con"),
+        ("Heavy workload",             "con"),
+        ("Difficult exams",            "con"),
+        ("Doesn't provide recordings", "con"),
+        ("Hard to contact",            "con"),
+        ("Lectures too fast",          "con"),
+        ("Grades harshly",             "con"),
+        ("Rarely available",           "con"),
+        ("Textbook-only teaching",     "con"),
+        ("Unclear marking criteria",   "con"),
+    ]
+    for label, ttype in default_tags:
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (label, type) VALUES (?,?)", (label, ttype)
+        )
+    conn.commit()
+    conn.close()
+    # --------------TAGS SYSTEM--------
+
 
 def get_all_lecturers():
     conn = connect_db()
@@ -223,10 +264,7 @@ def get_one_lecturer(lecturer_id):
             ROUND(AVG(CASE WHEN rc.name = 'teaching'      THEN rs.score END), 1) AS avg_teaching,
             ROUND(AVG(CASE WHEN rc.name = 'strictness'    THEN rs.score END), 1) AS avg_strictness,
             ROUND(AVG(CASE WHEN rc.name = 'communication' THEN rs.score END), 1) AS avg_communication,
-            ROUND(AVG(CASE WHEN rc.name = 'textbooks'     THEN rs.score END), 1) AS avg_textbooks,
-            COUNT(DISTINCT CASE WHEN ra.sentiment = 'Positive' THEN r.id END) AS positive_count,
-            COUNT(DISTINCT CASE WHEN ra.sentiment = 'Negative' THEN r.id END) AS negative_count,
-            COUNT(DISTINCT CASE WHEN ra.sentiment = 'Neutral'  THEN r.id END) AS neutral_count
+            ROUND(AVG(CASE WHEN rc.name = 'textbooks'     THEN rs.score END), 1) AS avg_textbooks
         FROM lecturers l
         LEFT JOIN lecturer_courses  lc ON l.id        = lc.lecturer_id
         LEFT JOIN courses            c ON lc.course_id = c.id
@@ -234,7 +272,6 @@ def get_one_lecturer(lecturer_id):
         LEFT JOIN ratings            r ON l.id        = r.lecturer_id
         LEFT JOIN rating_scores     rs ON r.id        = rs.rating_id
         LEFT JOIN rating_categories rc ON rs.category_id = rc.id
-        LEFT JOIN rating_analysis   ra ON r.id        = ra.rating_id
         WHERE l.id = ?
         GROUP BY l.id
     """, (lecturer_id,)).fetchone()
@@ -292,7 +329,7 @@ def is_student():
 def require_student(lecturer_id=None):
     
     if not is_student():
-        flash("Please log in to rate lecturers ya.", "error")
+        flash("Please log in to rate lecturer.", "error")
         
         if lecturer_id:
             return redirect(url_for("student_login_page", next=lecturer_id))
@@ -331,19 +368,36 @@ def profile_page(lecturer_id):
             MAX(CASE WHEN rc.name = 'teaching'      THEN rs.score END) AS teaching,
             MAX(CASE WHEN rc.name = 'strictness'    THEN rs.score END) AS strictness,
             MAX(CASE WHEN rc.name = 'communication' THEN rs.score END) AS communication,
-            MAX(CASE WHEN rc.name = 'textbooks'     THEN rs.score END) AS textbooks,
-            ra.sentiment,
-            ra.sentiment_score
+            MAX(CASE WHEN rc.name = 'textbooks'     THEN rs.score END) AS textbooks
         FROM ratings r
         LEFT JOIN rating_scores     rs ON r.id        = rs.rating_id
         LEFT JOIN rating_categories rc ON rs.category_id = rc.id
-        LEFT JOIN rating_analysis   ra ON r.id        = ra.rating_id
         WHERE r.lecturer_id = ?
         GROUP BY r.id
         ORDER BY r.submitted_at DESC
     """, (lecturer_id,)).fetchall()
+    # --------------TAGS SYSTEM--------
+    # Fetch all tags with vote counts for this lecturer
+    # Also check which ones the logged-in student has already voted on
+    current_student = session.get("student_id")
+    tags = conn.execute("""
+        SELECT
+            t.id,
+            t.label,
+            t.type,
+            COUNT(tv.id) AS vote_count,
+            MAX(CASE WHEN tv.student_id = ? THEN 1 ELSE 0 END) AS voted
+        FROM tags t
+        LEFT JOIN tag_votes tv ON t.id = tv.tag_id AND tv.lecturer_id = ?
+        GROUP BY t.id
+        ORDER BY t.type DESC, vote_count DESC
+    """, (current_student or "", lecturer_id)).fetchall()
     conn.close()
-    return render_template("profile.html", lecturer=lecturer, reviews=reviews)
+    pros = [t for t in tags if t["type"] == "pro"]
+    cons = [t for t in tags if t["type"] == "con"]
+    return render_template("profile.html", lecturer=lecturer, reviews=reviews,
+                           pros=pros, cons=cons, is_student=is_student())
+    # --------------TAGS SYSTEM--------
 
 
 # -------- ADMIN ----------
@@ -428,28 +482,14 @@ def rate_page(lecturer_id):
             (lecturer_id, student_id, comment)
         )
         rating_id = cur.lastrowid
-
- # ── ML SENTIMENT ANALYSIS ─────────────────────
-        score = analyzer.polarity_scores(comment)["compound"]
-        if score >= 0.05:
-            sentiment = "Positive"
-        elif score <= -0.05:
-            sentiment = "Negative"
-        else:
-            sentiment = "Neutral"
-        conn.execute(
-            "INSERT INTO rating_analysis (rating_id, sentiment, sentiment_score) VALUES (?,?,?)",
-            (rating_id, sentiment, score)
-    )
-# ──────────────────────────────────────────
         category_names = ["grading","teaching","strictness","communication","textbooks"]
-        for name, cat_score in zip(category_names, scores):
+        for name, score in zip(category_names, scores):
             cat = conn.execute(
                 "SELECT id FROM rating_categories WHERE name = ?", (name,)
             ).fetchone()
             conn.execute(
                 "INSERT INTO rating_scores (rating_id, category_id, score) VALUES (?,?,?)",
-                (rating_id, cat["id"], cat_score)
+                (rating_id, cat["id"], score)
             )
         conn.commit()
         conn.close()
@@ -457,6 +497,8 @@ def rate_page(lecturer_id):
         return redirect(url_for("profile_page", lecturer_id=lecturer_id))
 
     return render_template("rate.html", lecturer=lecturer)
+
+
 # ── API ─────────────────────────────────────────────────────────────────────
 
 @app.route("/api/search")
@@ -660,7 +702,7 @@ def admin_page():
         "SELECT * FROM requests ORDER BY submitted_at DESC"
     ).fetchall()
     pconn.close()
-    return render_template("admin.html", requests=pending,)
+    return render_template("admin.html", requests=pending)
 
 
 # NEW ROUTE: Accept — moves request from pending.db into mmu_ratings.db
@@ -736,131 +778,52 @@ def admin_decline(request_id):
     if req:
         flash(f'"{req["name"]}" request has been declined and removed.', "error")
     return redirect(url_for("admin_page"))
-
-# route to lists of lecturers (admin)
-@app.route("/admin/lecturers")
-def admin_lecturers_page():
-    if redir := require_admin():
-        return redir
-    all_lecturers = get_all_lecturers()
-    return render_template("admin-lecturers.html", lecturers=all_lecturers)
-
 # -------- ADMIN ----------
 
-# NEW ROUTE: Delete a lecturer and all associated data
-@app.route("/admin/delete-lecturer/<int:lecturer_id>", methods=["POST"])
-def admin_delete_lecturer(lecturer_id):
-    if redir := require_admin():
-        return redir
+
+# --------------TAGS SYSTEM--------
+# NEW ROUTE: student clicks a tag — toggles their vote on/off
+@app.route("/api/tag-vote", methods=["POST"])
+def tag_vote():
+    if not is_student():
+        return jsonify({"error": "Login required"}), 401
+
+    data        = request.get_json(force=True)
+    lecturer_id = data.get("lecturer_id")
+    tag_id      = data.get("tag_id")
+    student_id  = session["student_id"]
+
+    if not lecturer_id or not tag_id:
+        return jsonify({"error": "Missing data"}), 400
 
     conn = connect_db()
-    lecturer = conn.execute(
-        "SELECT * FROM lecturers WHERE id = ?", (lecturer_id,)
+    existing = conn.execute(
+        "SELECT id FROM tag_votes WHERE lecturer_id=? AND tag_id=? AND student_id=?",
+        (lecturer_id, tag_id, student_id)
     ).fetchone()
 
-    if lecturer is None:
-        conn.close()
-        flash("Lecturer not found.", "error")
-        return redirect(url_for("admin_page"))
-
-    # Delete rating_scores tied to this lecturer's ratings
-    conn.execute("""
-        DELETE FROM rating_scores
-        WHERE rating_id IN (SELECT id FROM ratings WHERE lecturer_id = ?)
-    """, (lecturer_id,))
-
-    # Delete the ratings themselves
-    conn.execute("DELETE FROM ratings WHERE lecturer_id = ?", (lecturer_id,))
-
-    # Delete lecturer-course links
-    conn.execute("DELETE FROM lecturer_courses WHERE lecturer_id = ?", (lecturer_id,))
-
-    # Delete the lecturer record
-    conn.execute("DELETE FROM lecturers WHERE id = ?", (lecturer_id,))
+    if existing:
+        # Already voted — remove vote (toggle off)
+        conn.execute("DELETE FROM tag_votes WHERE id=?", (existing["id"],))
+        voted = False
+    else:
+        # New vote — add it
+        conn.execute(
+            "INSERT INTO tag_votes (lecturer_id, tag_id, student_id) VALUES (?,?,?)",
+            (lecturer_id, tag_id, student_id)
+        )
+        voted = True
 
     conn.commit()
+    # Return updated count
+    count = conn.execute(
+        "SELECT COUNT(*) AS c FROM tag_votes WHERE lecturer_id=? AND tag_id=?",
+        (lecturer_id, tag_id)
+    ).fetchone()["c"]
     conn.close()
+    return jsonify({"voted": voted, "count": count})
+# --------------TAGS SYSTEM--------
 
-    # Clean up uploaded image file, if any
-    if lecturer["image"]:
-        image_path = os.path.join(UPLOAD_DIR, lecturer["image"])
-        if os.path.exists(image_path):
-            try:
-                os.remove(image_path)
-            except Exception as e:
-                print(f"Image delete error: {e}")
-
-    flash(f'"{lecturer["name"]}" has been deleted.', "success")
-    return redirect(url_for("admin_page"))
-
-
-# NEW ROUTE: Edit a lecturer's name / faculty / image
-@app.route("/admin/edit-lecturer/<int:lecturer_id>", methods=["GET", "POST"])
-def admin_edit_lecturer(lecturer_id):
-    if redir := require_admin():
-        return redir
-
-    conn = connect_db()
-    lecturer = conn.execute(
-        "SELECT * FROM lecturers WHERE id = ?", (lecturer_id,)
-    ).fetchone()
-
-    if lecturer is None:
-        conn.close()
-        flash("Lecturer not found.", "error")
-        return redirect(url_for("admin_page"))
-
-    if request.method == "POST":
-        name        = request.form.get("name", "").strip()
-        faculty_name = request.form.get("faculty", "").strip()
-        image_b64   = request.form.get("image")  # optional new image, base64 data URL
-
-        if not name:
-            flash("Lecturer name is required.", "error")
-            conn.close()
-            return redirect(url_for("admin_edit_lecturer", lecturer_id=lecturer_id))
-
-        # Resolve or create faculty
-        faculty_row = conn.execute(
-            "SELECT id FROM faculties WHERE name = ?", (faculty_name,)
-        ).fetchone()
-        if faculty_row:
-            faculty_id = faculty_row["id"]
-        else:
-            cur = conn.execute(
-                "INSERT INTO faculties (name) VALUES (?)", (faculty_name,)
-            )
-            faculty_id = cur.lastrowid
-
-        # Handle optional new image
-        new_filename = save_image(image_b64) if image_b64 else None
-        if new_filename:
-            # remove old image file
-            if lecturer["image"]:
-                old_path = os.path.join(UPLOAD_DIR, lecturer["image"])
-                if os.path.exists(old_path):
-                    try:
-                        os.remove(old_path)
-                    except Exception as e:
-                        print(f"Image delete error: {e}")
-            conn.execute(
-                "UPDATE lecturers SET name = ?, faculty_id = ?, image = ? WHERE id = ?",
-                (name, faculty_id, new_filename, lecturer_id)
-            )
-        else:
-            conn.execute(
-                "UPDATE lecturers SET name = ?, faculty_id = ? WHERE id = ?",
-                (name, faculty_id, lecturer_id)
-            )
-
-        conn.commit()
-        conn.close()
-        flash(f'"{name}" has been updated.', "success")
-        return redirect(url_for("admin_page"))
-
-    conn.close()
-    return render_template("edit-lecturer.html", lecturer=lecturer)
-# -------- ADMIN ----------
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 

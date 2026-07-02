@@ -1,17 +1,68 @@
 <!DOCTYPE html>
-<html>
-<head><title>Admin Login</title></head>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Login — MMU RateMyProfessor</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+</head>
 <body>
-    <h1>Admin Login</h1>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% for category, message in messages %}
-            <p><b>{{ message }}</b></p>
+
+  <header class="navbar">
+    <div class="nav-logo">
+      <a href="/" style="text-decoration:none;"><span class="mm">MM</span><span class="u">U</span></a>
+    </div>
+    <nav class="nav-links">
+      <a href="/">Home</a>
+      <a href="#">Browse</a>
+      <a href="#">About</a>
+    </nav>
+  </header>
+
+  <main class="form-page">
+    <div class="form-card" style="max-width:420px;">
+
+      <div style="text-align:center; margin-bottom:24px;">
+        <div style="font-size:2.4rem;">⚙️</div>
+      </div>
+
+      <h2 class="form-title" style="text-align:center;">Admin Login</h2>
+      <p class="form-subtitle" style="text-align:center;">
+        This page is for administrators only.
+      </p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+          <div class="status-msg {{ cat }}">{{ msg }}</div>
         {% endfor %}
-    {% endwith %}
-    <form method="POST">
-        <p>Username: <input type="text" name="username"></p>
-        <p>Password: <input type="password" name="password"></p>
-        <button type="submit">Login</button>
-    </form>
+      {% endwith %}
+
+      <form method="POST">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" name="username" id="username" class="form-input"
+                 placeholder="Admin username" required autofocus />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" name="password" id="password" class="form-input"
+                 placeholder="Admin password" required />
+        </div>
+
+        <div class="form-actions">
+          <a href="/" class="cancel-btn">Back to site</a>
+          <button type="submit" class="search-btn submit-btn">Log In</button>
+        </div>
+      </form>
+
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p>&copy; 2026 MMU RateMyProfessor. All rights reserved.</p>
+  </footer>
+
 </body>
 </html>
