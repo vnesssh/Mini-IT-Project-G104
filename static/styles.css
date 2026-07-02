@@ -282,7 +282,7 @@ body {
   padding:18px 22px; display:flex; flex-direction:column; gap:10px;
   box-shadow:0 1px 8px rgba(0,0,0,.04);
 }
-.review-header { display:flex; justify-content:space-between; }
+.review-header { display:flex; justify-content:space-between; align-items: center;gap: 10px; }
 .review-id   { font-size:.82rem; font-weight:600; color:var(--dark-blue); }
 .review-date { font-size:.78rem; color:var(--grey-mid); }
 .review-comment { font-size:.9rem; color:var(--black); font-style:italic; line-height:1.5; }
@@ -495,4 +495,25 @@ body {
 
 .tag-chip--active .tag-count {
   background: rgba(255,255,255,.25);
+}
+
+.sentiment-badge {
+  font-size: .72rem;
+  font-weight: 700;
+  padding: 3px 12px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.sentiment-positive {
+  background: #edfaf1;
+  color: #1a7a3e;
+}
+.sentiment-negative {
+  background: #fff0f0;
+  color: #c0392b;
+}
+.sentiment-neutral {
+  background: #f5f5f5;
+  color: var(--grey-mid);
 }

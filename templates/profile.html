@@ -196,6 +196,9 @@
       <div class="review-card">
         <div class="review-header">
           <span class="review-id">Anonymous student</span>
+          {% if r.sentiment %}
+          <span class="sentiment-badge sentiment-{{ r.sentiment|lower }}">{{ r.sentiment }}</span>
+          {% endif %}
           <span class="review-date">{{ r.submitted_at[:10] }}</span>
         </div>
         {% if r.comment %}

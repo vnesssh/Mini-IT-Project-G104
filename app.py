@@ -15,8 +15,8 @@ import secrets
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from flask_mail import Mail, Message
 from itsdangerous import URLSafeTimedSerializer 
-app = Flask(__name__)
 
+app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)
 app.permanent_session_lifetime = timedelta(hours=0.5)
 
@@ -107,6 +107,15 @@ def setup_database():
             submitted_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (lecturer_id) REFERENCES lecturers(id)
         )
+    """)
+
+    conn.execute("""
+         CREATE TABLE IF NOT EXISTS rating_analysis (
+        rating_id        INTEGER PRIMARY KEY,
+        sentiment        TEXT NOT NULL,
+        sentiment_score  REAL NOT NULL,
+        FOREIGN KEY (rating_id) REFERENCES ratings(id)
+    )
     """)
 
     conn.execute("""
@@ -272,6 +281,7 @@ def get_one_lecturer(lecturer_id):
         LEFT JOIN ratings            r ON l.id        = r.lecturer_id
         LEFT JOIN rating_scores     rs ON r.id        = rs.rating_id
         LEFT JOIN rating_categories rc ON rs.category_id = rc.id
+        LEFT JOIN rating_analysis   ra ON r.id        = ra.rating_id
         WHERE l.id = ?
         GROUP BY l.id
     """, (lecturer_id,)).fetchone()
@@ -368,10 +378,13 @@ def profile_page(lecturer_id):
             MAX(CASE WHEN rc.name = 'teaching'      THEN rs.score END) AS teaching,
             MAX(CASE WHEN rc.name = 'strictness'    THEN rs.score END) AS strictness,
             MAX(CASE WHEN rc.name = 'communication' THEN rs.score END) AS communication,
-            MAX(CASE WHEN rc.name = 'textbooks'     THEN rs.score END) AS textbooks
+            MAX(CASE WHEN rc.name = 'textbooks'     THEN rs.score END) AS textbooks,
+            ra.sentiment,
+            ra.sentiment_score
         FROM ratings r
         LEFT JOIN rating_scores     rs ON r.id        = rs.rating_id
         LEFT JOIN rating_categories rc ON rs.category_id = rc.id
+        LEFT JOIN rating_analysis   ra ON r.id        = ra.rating_id
         WHERE r.lecturer_id = ?
         GROUP BY r.id
         ORDER BY r.submitted_at DESC
@@ -482,6 +495,21 @@ def rate_page(lecturer_id):
             (lecturer_id, student_id, comment)
         )
         rating_id = cur.lastrowid
+
+        # ── ML SENTIMENT ANALYSIS ─────────────────────
+        score = analyzer.polarity_scores(comment)["compound"]
+        if score >= 0.05:
+            sentiment = "Positive"
+        elif score <= -0.05:
+            sentiment = "Negative"
+        else:
+            sentiment = "Neutral"
+        conn.execute(
+            "INSERT INTO rating_analysis (rating_id, sentiment, sentiment_score) VALUES (?,?,?)",
+            (rating_id, sentiment, score)
+        )
+        # ──────────────────────────────────────────
+
         category_names = ["grading","teaching","strictness","communication","textbooks"]
         for name, score in zip(category_names, scores):
             cat = conn.execute(
@@ -778,6 +806,126 @@ def admin_decline(request_id):
     if req:
         flash(f'"{req["name"]}" request has been declined and removed.', "error")
     return redirect(url_for("admin_page"))
+
+@app.route("/admin/delete-lecturer/<int:lecturer_id>", methods=["POST"])
+def admin_delete_lecturer(lecturer_id):
+    if redir := require_admin():
+        return redir
+
+    conn = connect_db()
+    lecturer = conn.execute(
+        "SELECT * FROM lecturers WHERE id = ?", (lecturer_id,)
+    ).fetchone()
+
+    if lecturer is None:
+        conn.close()
+        flash("Lecturer not found.", "error")
+        return redirect(url_for("admin_page"))
+
+    # Delete rating_scores tied to this lecturer's ratings
+    conn.execute("""
+        DELETE FROM rating_scores
+        WHERE rating_id IN (SELECT id FROM ratings WHERE lecturer_id = ?)
+    """, (lecturer_id,))
+
+    # Delete the ratings themselves
+    conn.execute("DELETE FROM ratings WHERE lecturer_id = ?", (lecturer_id,))
+
+    # Delete lecturer-course links
+    conn.execute("DELETE FROM lecturer_courses WHERE lecturer_id = ?", (lecturer_id,))
+
+    # Delete the lecturer record
+    conn.execute("DELETE FROM lecturers WHERE id = ?", (lecturer_id,))
+
+    conn.commit()
+    conn.close()
+
+    # Clean up uploaded image file, if any
+    if lecturer["image"]:
+        image_path = os.path.join(UPLOAD_DIR, lecturer["image"])
+        if os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+            except Exception as e:
+                print(f"Image delete error: {e}")
+
+    flash(f'"{lecturer["name"]}" has been deleted.', "success")
+    return redirect(url_for("admin_page"))
+
+
+# NEW ROUTE: Edit a lecturer's name / faculty / image
+@app.route("/admin/lecturers")
+def admin_lecturers_page():
+    if redir := require_admin():
+        return redir
+    lecturers = get_all_lecturers()
+    return render_template("admin-lecturers.html", lecturers=lecturers)
+
+@app.route("/admin/edit-lecturer/<int:lecturer_id>", methods=["GET", "POST"])
+def admin_edit_lecturer(lecturer_id):
+    if redir := require_admin():
+        return redir
+
+    conn = connect_db()
+    lecturer = conn.execute(
+        "SELECT * FROM lecturers WHERE id = ?", (lecturer_id,)
+    ).fetchone()
+
+    if lecturer is None:
+        conn.close()
+        flash("Lecturer not found.", "error")
+        return redirect(url_for("admin_page"))
+
+    if request.method == "POST":
+        name        = request.form.get("name", "").strip()
+        faculty_name = request.form.get("faculty", "").strip()
+        image_b64   = request.form.get("image")  # optional new image, base64 data URL
+
+        if not name:
+            flash("Lecturer name is required.", "error")
+            conn.close()
+            return redirect(url_for("admin_edit_lecturer", lecturer_id=lecturer_id))
+
+        # Resolve or create faculty
+        faculty_row = conn.execute(
+            "SELECT id FROM faculties WHERE name = ?", (faculty_name,)
+        ).fetchone()
+        if faculty_row:
+            faculty_id = faculty_row["id"]
+        else:
+            cur = conn.execute(
+                "INSERT INTO faculties (name) VALUES (?)", (faculty_name,)
+            )
+            faculty_id = cur.lastrowid
+
+        # Handle optional new image
+        new_filename = save_image(image_b64) if image_b64 else None
+        if new_filename:
+            # remove old image file
+            if lecturer["image"]:
+                old_path = os.path.join(UPLOAD_DIR, lecturer["image"])
+                if os.path.exists(old_path):
+                    try:
+                        os.remove(old_path)
+                    except Exception as e:
+                        print(f"Image delete error: {e}")
+            conn.execute(
+                "UPDATE lecturers SET name = ?, faculty_id = ?, image = ? WHERE id = ?",
+                (name, faculty_id, new_filename, lecturer_id)
+            )
+        else:
+            conn.execute(
+                "UPDATE lecturers SET name = ?, faculty_id = ? WHERE id = ?",
+                (name, faculty_id, lecturer_id)
+            )
+
+        conn.commit()
+        conn.close()
+        flash(f'"{name}" has been updated.', "success")
+        return redirect(url_for("admin_page"))
+
+    conn.close()
+    return render_template("edit-lecturer.html", lecturer=lecturer)
 # -------- ADMIN ----------
 
 
