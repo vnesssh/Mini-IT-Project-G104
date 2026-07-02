@@ -1,19 +1,70 @@
 <!DOCTYPE html>
-<html>
-<head><title>Student Register</title></head>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Register — MMU RateMyProfessor</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+</head>
 <body>
-    <h1>Student Register</h1>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% for category, message in messages %}
-            <p><b>{{ message }}</b></p>
+
+  <header class="navbar">
+    <div class="nav-logo">
+      <a href="/" style="text-decoration:none;"><span class="mm">MM</span><span class="u">U</span></a>
+    </div>
+    <nav class="nav-links">
+      <a href="/">Home</a>
+      <a href="#">Browse</a>
+      <a href="#">About</a>
+    </nav>
+  </header>
+
+  <main class="form-page">
+    <div class="form-card" style="max-width:420px;">
+      <h2 class="form-title">Create Account</h2>
+      <p class="form-subtitle">Register with your MMU Student ID to rate lecturers and vote on tags.</p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+          <div class="status-msg {{ cat }}">{{ msg }}</div>
         {% endfor %}
-    {% endwith %}
-    <form method="POST">
-        <p>Student ID: <input type="text" name="student_id"></p>
-        <p>Password: <input type="password" name="password"></p>
-        <p>Confirm Password: <input type="password" name="confirm"></p>
-        <button type="submit">Register</button>
-    </form>
-    <a href="/login">Already have an account? Login here</a>
+      {% endwith %}
+
+      <form method="POST">
+
+        <div class="form-group">
+          <label for="student_id">Student ID</label>
+          <input type="text" name="student_id" id="student_id" class="form-input"
+                 placeholder="e.g. 1234567" required autofocus />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" name="password" id="password" class="form-input"
+                 placeholder="At least 8 characters" required />
+        </div>
+
+        <div class="form-group">
+          <label for="confirm">Confirm Password</label>
+          <input type="password" name="confirm" id="confirm" class="form-input"
+                 placeholder="Repeat your password" required />
+        </div>
+
+        <div class="form-actions" style="justify-content:space-between; align-items:center;">
+          <a href="/login" style="font-size:.82rem; color:var(--dark-blue);">
+            Already have an account? Log in
+          </a>
+          <button type="submit" class="search-btn submit-btn">Register</button>
+        </div>
+
+      </form>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p>&copy; 2026 MMU RateMyProfessor. All rights reserved.</p>
+  </footer>
+
 </body>
 </html>
