@@ -11,12 +11,28 @@ import os, sqlite3, uuid, base64
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session 
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import timedelta
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer 
-
+import secrets
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from flask_mail import Mail, Message
+from itsdangerous import URLSafeTimedSerializer 
 app = Flask(__name__)
-analyzer = SentimentIntensityAnalyzer()
+
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)
-app.permanent_session_lifetime = timedelta(hours=0.5)   
+app.permanent_session_lifetime = timedelta(hours=0.5)
+
+app.config["MAIL_SERVER"] = "smtp.gmail.com"
+app.config["MAIL_PORT"] = 587
+app.config["MAIL_USE_TLS"] = True
+app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME", "vienesshbro24@gmail.com")
+app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD", "rutquezxchwweetp")
+app.config["MAIL_DEFAULT_SENDER"] = app.config["MAIL_USERNAME"]
+
+mail = Mail(app)
+serializer = URLSafeTimedSerializer(app.secret_key)
+analyzer = SentimentIntensityAnalyzer()
+
+# How long a verification link stays valid, in seconds
+VERIFY_TOKEN_MAX_AGE = 60 * 60 * 24  # 24 hours  
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 DB_FILE     = os.path.join(BASE_DIR, "mmu_ratings.db")
@@ -25,18 +41,14 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # -------- ADMIN ----------
 PENDING_DB = os.path.join(BASE_DIR, "pending.db")
-# -------- ADMIN ----------
-
 ADMIN_USERNAME = "NothingPhone3a"
 ADMIN_PASSWORD = generate_password_hash("OatKrunch67")
 
 # ── Database helpers ────────────────────────────────────────────────────────
-
 def connect_db():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
-
 
 # -------- ADMIN ----------
 def connect_pending():
@@ -44,7 +56,6 @@ def connect_pending():
     conn.row_factory = sqlite3.Row
     return conn
 # -------- ADMIN ----------
-
 
 def setup_database():
     conn = connect_db()
@@ -130,7 +141,11 @@ def setup_database():
     CREATE TABLE IF NOT EXISTS students (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         student_id    TEXT NOT NULL UNIQUE,
+        email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
+        email_verified INTEGER DEFAULT 0,
+        verification_token TEXT,
+        reset_token TEXT,
         registered_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
 """)
@@ -241,8 +256,36 @@ def save_image(data_url):
         print(f"Image save error: {e}")
         return None
 
-# student authentication
+# email verification 
+def generate_verification_token(email):
+    """Signed, self-expiring token (no DB column needed for expiry)."""
+    return serializer.dumps(email, salt="email-verify")
+ 
+ 
+def confirm_verification_token(token, max_age=VERIFY_TOKEN_MAX_AGE):
+    """Returns the email if the token is valid and not expired, else None."""
+    try:
+        return serializer.loads(token, salt="email-verify", max_age=max_age)
+    except Exception:
+        return None
+ 
+ 
+def send_verification_email(email, token):
+    verify_link = url_for("verify_email", token=token, _external=True)
+    msg = Message(
+        subject="Verify your MMU RateMyProfessor account",
+        recipients=[email]
+    )
+    msg.body = f"""Welcome!
+ 
+Please verify your account by clicking the link below:
+{verify_link}
+ 
+This link expires in 24 hours. If you didn't create this account, you can ignore this email.
+"""
+    mail.send(msg)
 
+# student authentication
 def is_student():
     return "student_id" in session
 
@@ -436,28 +479,142 @@ def api_search():
     } for r in rows])
 
 
-# ── Student login / logout ───────────────────────────────────────────────────
+# ── Student register ───────────────────────────────────────────────────
+@app.route("/register", methods=["GET", "POST"])
+def student_register_page():
+    if request.method == "POST":
+        student_id = request.form.get("student_id", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password   = request.form.get("password", "")
+        confirm = request.form.get("confirm", "")
+
+        if not student_id or not email or not password:
+            flash("Please fill in all fields.", "error")
+            return redirect(url_for("student_register_page"))
+        
+        if not email.endswith("@student.mmu.edu.my"):
+            flash("Please register using your MMU student email.", "error")
+            return redirect(url_for("student_register_page"))
+        
+        if len(password) < 8:
+            flash("Password must be at least 8 characters.", "error")
+            return redirect(url_for("student_register_page"))
+    
+        if password != confirm:
+            flash("Passwords do not match.", "error")
+            return redirect(url_for("student_register_page"))
+
+        conn = connect_db()
+        student = conn.execute(
+            "SELECT 1 FROM students WHERE student_id = ? OR email = ?", (student_id, email)
+        ).fetchone()
+        if student:
+            flash("That student ID or email is already registered.", "error")
+            conn.close()
+            return redirect(url_for("student_register_page"))
+ 
+        token = generate_verification_token(email)
+        conn.execute(
+            "INSERT INTO students (student_id, email, password_hash, verification_token) VALUES (?, ?, ?, ?)",
+            (student_id, email, generate_password_hash(password), token)
+        )
+        conn.commit()
+        conn.close()
+ 
+        try:
+            send_verification_email(email, token)
+        except Exception as e:
+            print(f"Failed to send verification email: {e}")
+            flash("Account created, but we couldn't send the verification email. "
+                  "Please use 'Resend verification email' on the login page.", "error")
+            return redirect(url_for("student_login_page"))
+ 
+        flash("Account created! Please check your MMU email to verify your account.", "success")
+        return redirect(url_for("student_login_page"))
+    return render_template("register.html")
+
+@app.route("/verify-email/<token>")
+def verify_email(token):
+    email = confirm_verification_token(token)
+    if email is None:
+        flash("That verification link is invalid or has expired. Please request a new one.", "error")
+        return redirect(url_for("resend_verification_page"))
+ 
+    conn = connect_db()
+    student = conn.execute("SELECT * FROM students WHERE email = ?", (email,)).fetchone()
+    if student is None:
+        conn.close()
+        flash("Account not found.", "error")
+        return redirect(url_for("student_register_page"))
+ 
+    if student["email_verified"]:
+        conn.close()
+        flash("Your email is already verified. You can log in.", "success")
+        return redirect(url_for("student_login_page"))
+ 
+    conn.execute(
+        "UPDATE students SET email_verified = 1, verification_token = NULL WHERE email = ?",
+        (email,)
+    )
+    conn.commit()
+    conn.close()
+    flash("Your email has been verified! You can now log in.", "success")
+    return redirect(url_for("student_login_page"))
+ 
+ 
+@app.route("/resend-verification", methods=["GET", "POST"])
+def resend_verification_page():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        conn = connect_db()
+        student = conn.execute("SELECT * FROM students WHERE email = ?", (email,)).fetchone()
+ 
+        # Always show the same message whether or not the email exists,
+        # so this endpoint can't be used to enumerate registered emails.
+        if student and not student["email_verified"]:
+            token = generate_verification_token(email)
+            conn.execute(
+                "UPDATE students SET verification_token = ? WHERE email = ?",
+                (token, email)
+            )
+            conn.commit()
+            try:
+                send_verification_email(email, token)
+            except Exception as e:
+                print(f"Failed to resend verification email: {e}")
+        conn.close()
+        flash("If that email is registered and unverified, a new verification link has been sent.", "success")
+        return redirect(url_for("student_login_page"))
+    return render_template("resend-verification.html") 
+
 @app.route("/login", methods=["GET", "POST"])
 def student_login_page():
     next_id = request.args.get("next")
     if request.method == "POST":
         student_id = request.form.get("student_id", "").strip()
         password   = request.form.get("password", "")
+ 
         conn = connect_db()
         student = conn.execute(
             "SELECT * FROM students WHERE student_id = ?", (student_id,)
         ).fetchone()
         conn.close()
+ 
         if not student:
             flash("Student ID not found. Please register first.", "error")
         elif not check_password_hash(student["password_hash"], password):
             flash("Incorrect password.", "error")
+        elif not student["email_verified"]:
+            flash("Please verify your email before logging in. "
+                  "Check your inbox, or request a new link below.", "error")
+            return redirect(url_for("resend_verification_page"))
         else:
             session.permanent = True
             session["student_id"] = student_id
             if next_id:
                 return redirect(url_for("rate_page", lecturer_id=next_id))
             return redirect(url_for("home_page"))
+ 
     return render_template("login.html", next=next_id)
 
 @app.route("/logout", methods=["POST"])
@@ -562,45 +719,6 @@ def admin_accept(request_id):
 
     pconn.close()
     return redirect(url_for("admin_page"))
-
-@app.route("/register", methods=["GET", "POST"])
-def student_register_page():
-    if request.method == "POST":
-        student_id = request.form.get("student_id", "").strip()
-        password   = request.form.get("password", "")
-        confirm    = request.form.get("confirm", "")
-       
-        if not student_id or not password:
-            flash("Please fill in all fields.", "error")
-            return redirect(url_for("student_register_page"))
-        
-        if len(password) < 8:
-            flash("Password must be at least 8 characters.", "error")
-            return redirect(url_for("student_register_page"))
-       
-        if password != confirm:
-            flash("Passwords do not match.", "error")
-            return redirect(url_for("student_register_page"))
-       
-        conn = connect_db()
-        existing = conn.execute(
-            "SELECT 1 FROM students WHERE student_id = ?", (student_id,)
-        ).fetchone()
-       
-        if existing:
-            flash("That student ID is already registered.", "error")
-            conn.close()
-            return redirect(url_for("student_register_page"))
-        
-        conn.execute(
-            "INSERT INTO students (student_id, password_hash) VALUES (?,?)",
-            (student_id, generate_password_hash(password))
-        )
-        conn.commit()
-        conn.close()
-        flash("Account created! Please log in.", "success")
-        return redirect(url_for("student_login_page"))
-    return render_template("register.html")
 
 # NEW ROUTE: Decline — deletes request from pending.db
 @app.route("/admin/decline/<int:request_id>", methods=["POST"])
